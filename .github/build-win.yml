@@ -1,0 +1,80 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: 'Source repo to build from (owner/repo)'
+        required: true
+        default: 'yangshuo8023/LocalMiniDrama'
+      source_ref:
+        description: 'Branch or tag to build'
+        required: true
+        default: 'main'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.source_repo }}
+          ref: ${{ github.event.inputs.source_ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install frontend dependencies
+        working-directory: frontweb
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontweb
+        run: npm run build
+
+      - name: Install backend dependencies
+        working-directory: backend-node
+        env:
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
+        run: npm ci
+
+      - name: Install desktop dependencies and rebuild native modules
+        working-directory: desktop
+        env:
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
+        run: npm ci
+
+      - name: Copy frontend dist
+        working-directory: desktop
+        run: node scripts/copy-front.js
+
+      - name: Copy backend
+        working-directory: desktop
+        run: node scripts/copy-backend.js
+
+      - name: Build Standard Installer
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish never
+
+      - name: Upload Windows Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: desktop/release/*.exe
+          retention-days: 7
